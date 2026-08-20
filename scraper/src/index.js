@@ -1,35 +1,44 @@
 const fs = require("fs");
 const path = require("path");
+const cheerio = require("cheerio");
 
-const PAGE_URL = "https://books.toscrape.com/catalogue/page-1.html";
+const START_URL = "https://books.toscrape.com/catalogue/page-1.html";
+
 const CACHE_DIR = path.join(__dirname, "..", "cache");
-const CACHE_FILE = path.join(CACHE_DIR, "catalogue-page-1.html");
 
-async function fetchPage() {
+const USER_AGENT =
+  "FlyRankInternship-A9/1.0 (https://github.com/Ebraheim/polite-scraper)";
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithCache(url, cacheFilename) {
   if (!fs.existsSync(CACHE_DIR)) {
     fs.mkdirSync(CACHE_DIR, { recursive: true });
   }
 
-  // Use cache if it already exists
-  if (fs.existsSync(CACHE_FILE)) {
-    const html = fs.readFileSync(CACHE_FILE, "utf8");
+  const cachePath = path.join(CACHE_DIR, cacheFilename);
 
-    console.log("CACHE HIT");
-    console.log(`response_size=${Buffer.byteLength(html, "utf8")} bytes`);
+  if (fs.existsSync(cachePath)) {
+    const html = fs.readFileSync(cachePath, "utf8");
 
+    console.log(`CACHE HIT ${url}`);
     return html;
   }
+
+  // Be polite before making a real request
+  await sleep(600);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
 
   try {
-    console.log("FETCH");
+    console.log(`FETCH ${url}`);
 
-    const response = await fetch(PAGE_URL, {
+    const response = await fetch(url, {
       headers: {
-        "User-Agent":
-          "FlyRankInternship-A9/1.0 (https://github.com/Ebraheim/polite-scraper)",
+        "User-Agent": USER_AGENT,
       },
       signal: controller.signal,
     });
@@ -40,24 +49,61 @@ async function fetchPage() {
 
     const html = await response.text();
 
-    fs.writeFileSync(CACHE_FILE, html, "utf8");
+    fs.writeFileSync(cachePath, html, "utf8");
 
     console.log(`status=${response.status}`);
-    console.log(`response_size=${Buffer.byteLength(html, "utf8")} bytes`);
-    console.log(`saved=${CACHE_FILE}`);
+    console.log(`saved=${cachePath}`);
 
     return html;
-  } catch (error) {
-    if (error.name === "AbortError") {
-      console.error("Request timed out");
-    } else {
-      console.error(`Fetch failed: ${error.message}`);
-    }
-
-    process.exitCode = 1;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-fetchPage();
+async function discoverBooks() {
+  let currentUrl = START_URL;
+
+  const discoveredUrls = [];
+  let cataloguePages = 0;
+
+  while (currentUrl && cataloguePages < 3) {
+    cataloguePages++;
+
+    const cacheFilename = `catalogue-page-${cataloguePages}.html`;
+
+    const html = await fetchWithCache(currentUrl, cacheFilename);
+
+    const $ = cheerio.load(html);
+
+    // Find every book link on the catalogue page
+    $("article.product_pod h3 a").each((_, element) => {
+      const href = $(element).attr("href");
+
+      if (href) {
+        const absoluteUrl = new URL(href, currentUrl).href;
+        discoveredUrls.push(absoluteUrl);
+      }
+    });
+
+    // Follow the site's own Next link
+    const nextHref = $("li.next a").attr("href");
+
+    if (nextHref && cataloguePages < 3) {
+      currentUrl = new URL(nextHref, currentUrl).href;
+    } else {
+      currentUrl = null;
+    }
+  }
+
+  const uniqueUrls = [...new Set(discoveredUrls)];
+
+  console.log("");
+  console.log(`catalogue_pages=${cataloguePages}`);
+  console.log(`discovered=${discoveredUrls.length}`);
+  console.log(`unique_urls=${uniqueUrls.length}`);
+}
+
+discoverBooks().catch((error) => {
+  console.error(`Scraper failed: ${error.message}`);
+  process.exitCode = 1;
+});
