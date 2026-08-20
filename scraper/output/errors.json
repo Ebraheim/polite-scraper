@@ -1,0 +1,7 @@
+[
+  {
+    "type": "fetch_error",
+    "product_url": "https://books.toscrape.com/catalogue/this-book-does-not-exist-9999/index.html",
+    "reason": "HTTP 404"
+  }
+]

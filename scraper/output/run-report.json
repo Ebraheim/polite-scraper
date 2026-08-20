@@ -1,0 +1,12 @@
+{
+  "started_at": "2026-08-20T15:09:39.736Z",
+  "finished_at": "2026-08-20T15:09:41.595Z",
+  "duration_ms": 1859,
+  "catalogue_pages": 3,
+  "discovered_book_urls": 60,
+  "pages_fetched": 0,
+  "cache_hits": 63,
+  "valid_records": 60,
+  "invalid_records": 0,
+  "failed_pages": 1
+}

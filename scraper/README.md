@@ -1,5 +1,11 @@
 # The Polite Scraper
 
+A small, polite web-scraping pipeline built for the FlyRank Backend Track Week 5 assignment.
+
+The scraper processes the first three catalogue pages of Books to Scrape, discovers 60 books, visits each detail page, extracts structured data, validates the records, stores clean JSON, survives a deliberately broken page, and produces a run report.
+
+---
+
 ## Target Classification
 
 **Target site:** Books to Scrape  
@@ -7,22 +13,248 @@
 
 Books to Scrape is a public sandbox created specifically for practising web scraping.
 
-**Scope:**  
-This scraper will only process the first 3 catalogue pages and the 60 book detail pages discovered from them.
+### Scope
 
-**Data collected:**
-- Book title
+This scraper only processes:
+
+- the first 3 catalogue pages
+- the 60 book detail pages discovered from those catalogue pages
+
+It does not crawl the complete website.
+
+### Data collected
+
+For each book the scraper collects:
+
+- Title
 - Product URL
-- Price
+- Raw price
+- Normalized GBP price
 - Availability
 - Rating
 - Description
 - Source catalogue page
 - Fetch timestamp
 
-**robots.txt result:**  
-No robots.txt file was found. The request returned 404 Not Found.
+### robots.txt result
 
-This assignment is appropriate because the target is a public practice sandbox designed for scraping exercises.
+A request to:
+
+`https://books.toscrape.com/robots.txt`
+
+returned:
+
+`404 Not Found`
+
+No robots.txt file was found. A missing robots file is not treated as permission. The target was selected because Books to Scrape is a public sandbox designed specifically for scraping practice.
 
 I will not reuse this code on another site without checking its rules and terms first.
+
+---
+
+## Technology
+
+This project uses the JavaScript lane.
+
+- Node.js 20+
+- Built-in `fetch`
+- Cheerio for HTML parsing
+- Zod for schema validation
+- Node.js file system for JSON output
+
+No database, proxy, paid API, browser automation, or cloud service is required.
+
+---
+
+## Installation
+
+Clone the repository and move into the scraper folder:
+
+```bash
+git clone https://github.com/Ebraheim/polite-scraper.git
+cd polite-scraper/scraper
+
+Install dependencies:
+
+npm install
+Run
+
+Run the scraper with:
+
+node src/index.js
+
+A successful run creates:
+
+output/
+├── books.json
+├── errors.json
+└── run-report.json
+Pipeline
+
+The scraper follows this pipeline:
+
+Classify
+   ↓
+Fetch
+   ↓
+Extract
+   ↓
+Normalize
+   ↓
+Validate
+   ↓
+Store
+   ↓
+Report
+Record Schema
+
+Each valid book record contains:
+
+{
+  "title": "string",
+  "product_url": "https://...",
+  "price_text": "£51.77",
+  "price_gbp": 51.77,
+  "availability_text": "In stock (22 available)",
+  "rating_text": "Three",
+  "description": "string or null",
+  "source_page": "https://...",
+  "fetched_at": "ISO timestamp"
+}
+Validation rules
+title must not be empty
+product_url must be a valid absolute URL
+price_text keeps the original scraped value
+price_gbp must be a valid non-negative number
+availability_text must not be empty
+rating_text must be One, Two, Three, Four, Five, or null
+description may be null
+source_page must be a valid absolute URL
+fetched_at must contain a timestamp
+
+Invalid records are written to:
+
+output/errors.json
+
+They are not added to books.json.
+
+Politeness Rules
+
+The scraper follows several rules to avoid unnecessary load on the target site.
+
+Identifying User-Agent
+
+Every real request sends an identifying user-agent:
+
+FlyRankInternship-A9/1.0 (https://github.com/Ebraheim/polite-scraper)
+Delay
+
+The scraper waits at least 600 milliseconds before making a real request.
+
+Timeout
+
+Requests have a 5-second timeout so the program does not wait forever.
+
+Status checking
+
+HTML is only processed when the request succeeds.
+
+Retry rules
+
+Timeouts and server errors can be retried once.
+
+403 and 404 responses are not retried.
+
+Cache
+
+Downloaded HTML is stored locally in the cache/ folder.
+
+During development and reruns, cached HTML is reused instead of downloading the same page repeatedly.
+
+The cache/ folder is excluded from Git because it contains many downloaded HTML files.
+
+Duplicate Prevention
+
+The absolute product URL is used as the stable identity of each book.
+
+Before writing the output, records are stored by product URL so duplicate discoveries cannot create duplicate records.
+
+Running the scraper again therefore produces the same 60 unique books instead of adding another 60 records.
+
+Failure Handling
+
+One deliberately fake book URL is included during the Stage 5 test.
+
+The fake page returns a failure, but the scraper catches the error, records it, skips that page, and continues processing the rest of the books.
+
+The expected result is:
+
+valid_records=60
+invalid_records=0
+failed_pages=1
+
+This demonstrates that one broken page does not crash the complete scraping job.
+
+Example Run Report
+
+Replace the JSON below with the exact contents of your latest output/run-report.json:
+
+{
+  "started_at": "PASTE_FROM_RUN_REPORT",
+  "finished_at": "PASTE_FROM_RUN_REPORT",
+  "duration_ms": 0,
+  "catalogue_pages": 3,
+  "discovered_book_urls": 60,
+  "pages_fetched": 0,
+  "cache_hits": 63,
+  "valid_records": 60,
+  "invalid_records": 0,
+  "failed_pages": 1
+}
+
+The values above show the expected shape. The final README should contain the exact values generated by the real run.
+
+Why No Browser Was Needed
+
+This assignment does not require browser automation because the book information is already present in the HTML returned by the server.
+
+Using a full browser such as Playwright would add additional time and memory usage without providing useful data for this target.
+
+A normal HTTP request plus an HTML parser is enough.
+
+Honest Limitation
+
+The scraper depends on the current HTML structure and CSS selectors used by Books to Scrape.
+
+If the website changes its markup, some selectors may stop finding the correct fields and the scraper would need to be updated.
+
+Ethics Note
+
+I would use an official API instead of scraping when a suitable API is available.
+
+I would not use this scraper to bypass authentication, paywalls, access controls, rate limits, or deliberate blocking.
+
+I would also collect only the information needed for the task rather than gathering unnecessary data.
+
+This project is limited to a public practice sandbox created for scraping exercises.
+
+
+
+### Step 3 — Put the real run report into the README
+
+
+Open:
+
+
+```text
+scraper/output/run-report.json
+
+Copy the entire JSON.
+
+Then in the README find:
+
+## Example Run Report
+
+and replace the placeholder JSON with the exact JSON from your file.
+
+Do not change the numbers manually. The assignment asks for an honest report from a real run.
