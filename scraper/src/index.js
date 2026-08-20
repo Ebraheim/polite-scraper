@@ -1,10 +1,12 @@
 const fs = require("fs");
 const path = require("path");
-const cheerio = require("cheerio");
 const crypto = require("crypto");
+const cheerio = require("cheerio");
+const { z } = require("zod");
 
 const START_URL = "https://books.toscrape.com/catalogue/page-1.html";
 const CACHE_DIR = path.join(__dirname, "..", "cache");
+const OUTPUT_DIR = path.join(__dirname, "..", "output");
 
 const USER_AGENT =
   "FlyRankInternship-A9/1.0 (https://github.com/Ebraheim/polite-scraper)";
@@ -13,9 +15,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function ensureCacheDir() {
-  if (!fs.existsSync(CACHE_DIR)) {
-    fs.mkdirSync(CACHE_DIR, { recursive: true });
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 }
 
@@ -25,7 +27,7 @@ function safeFilename(url) {
 }
 
 async function fetchWithCache(url, cacheFilename = null) {
-  ensureCacheDir();
+  ensureDir(CACHE_DIR);
 
   const filename = cacheFilename || safeFilename(url);
   const cachePath = path.join(CACHE_DIR, filename);
@@ -56,7 +58,6 @@ async function fetchWithCache(url, cacheFilename = null) {
     }
 
     const html = await response.text();
-
     fs.writeFileSync(cachePath, html, "utf8");
 
     console.log(`status=${response.status}`);
@@ -77,9 +78,7 @@ async function discoverBooks() {
     cataloguePages++;
 
     const cacheFilename = `catalogue-page-${cataloguePages}.html`;
-
     const html = await fetchWithCache(currentUrl, cacheFilename);
-
     const $ = cheerio.load(html);
 
     $("article.product_pod h3 a").each((_, element) => {
@@ -104,32 +103,24 @@ async function discoverBooks() {
 
   const seen = new Set();
 
-  const uniqueBooks = books.filter((book) => {
-    if (seen.has(book.product_url)) {
-      return false;
-    }
+  return books.filter((book) => {
+    if (seen.has(book.product_url)) return false;
 
     seen.add(book.product_url);
     return true;
   });
-
-  console.log("");
-  console.log(`catalogue_pages=${cataloguePages}`);
-  console.log(`discovered=${books.length}`);
-  console.log(`unique_urls=${uniqueBooks.length}`);
-  console.log("");
-
-  return uniqueBooks;
 }
 
 function extractRating($) {
   const ratingClass = $("p.star-rating").attr("class") || "";
 
-  const parts = ratingClass.split(/\s+/);
-
-  return parts.find((part) =>
-    ["One", "Two", "Three", "Four", "Five"].includes(part)
-  ) || null;
+  return (
+    ratingClass
+      .split(/\s+/)
+      .find((part) =>
+        ["One", "Two", "Three", "Four", "Five"].includes(part)
+      ) || null
+  );
 }
 
 function extractDescription($) {
@@ -146,7 +137,6 @@ function extractDescription($) {
 
 async function extractBook(book) {
   const html = await fetchWithCache(book.product_url);
-
   const $ = cheerio.load(html);
 
   return {
@@ -165,24 +155,85 @@ async function extractBook(book) {
   };
 }
 
+function normalizePrice(priceText) {
+  const cleaned = priceText.replace("£", "").trim();
+  const value = Number.parseFloat(cleaned);
+
+  return value;
+}
+
+const BookSchema = z.object({
+  title: z.string().min(1),
+  product_url: z.string().url(),
+  price_text: z.string().min(1),
+  price_gbp: z.number().finite().nonnegative(),
+  availability_text: z.string().min(1),
+  rating_text: z.enum(["One", "Two", "Three", "Four", "Five"]).nullable(),
+  description: z.string().nullable(),
+  source_page: z.string().url(),
+  fetched_at: z.string().min(1),
+});
+
 async function main() {
+  ensureDir(OUTPUT_DIR);
+
   const books = await discoverBooks();
 
-  const rawRecords = [];
+  const validRecords = [];
+  const errors = [];
 
   for (let i = 0; i < books.length; i++) {
-    const record = await extractBook(books[i]);
+    try {
+      const raw = await extractBook(books[i]);
 
-    rawRecords.push(record);
+      const normalized = {
+        ...raw,
+        price_gbp: normalizePrice(raw.price_text),
+      };
 
-    console.log(`detail ${i + 1}/${books.length}`);
+      const result = BookSchema.safeParse(normalized);
+
+      if (result.success) {
+        validRecords.push(result.data);
+      } else {
+        errors.push({
+          product_url: books[i].product_url,
+          reason: result.error.issues,
+        });
+      }
+
+      console.log(`processed ${i + 1}/${books.length}`);
+    } catch (error) {
+      errors.push({
+        product_url: books[i].product_url,
+        reason: error.message,
+      });
+    }
   }
 
+  const uniqueMap = new Map();
+
+  for (const record of validRecords) {
+    uniqueMap.set(record.product_url, record);
+  }
+
+  const uniqueRecords = [...uniqueMap.values()];
+
+  fs.writeFileSync(
+    path.join(OUTPUT_DIR, "books.json"),
+    JSON.stringify(uniqueRecords, null, 2)
+  );
+
+  fs.writeFileSync(
+    path.join(OUTPUT_DIR, "errors.json"),
+    JSON.stringify(errors, null, 2)
+  );
+
   console.log("");
-  console.log("SAMPLE RAW RECORD:");
-  console.log(JSON.stringify(rawRecords[0], null, 2));
-  console.log("");
-  console.log(`detail_pages=${rawRecords.length}`);
+  console.log(`valid_records=${uniqueRecords.length}`);
+  console.log(`invalid_records=${errors.length}`);
+  console.log(`books_json=${path.join(OUTPUT_DIR, "books.json")}`);
+  console.log(`errors_json=${path.join(OUTPUT_DIR, "errors.json")}`);
 }
 
 main().catch((error) => {
